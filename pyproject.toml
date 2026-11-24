@@ -1,7 +1,7 @@
 [project]
 name = "atlas-ai-document-chat-application"
 version = "0.1.0"
-description = "Add your description here"
+description = "Atlas AI Document Chat Application with Gemini, Hugging Face, and S3"
 readme = "README.md"
 authors = [
     { name = "Mehaboob", email = "sameernaseema175@gmail.com" }
@@ -10,10 +10,14 @@ requires-python = ">=3.12"
 dependencies = [
     "boto3==1.37.38",
     "fastapi==0.115.12",
+    "fastembed>=0.5.0",
     "glassflow-rius>=1.0,<2.0",
+    "google-genai>=3.6.0",
+    "huggingface-hub>=0.25.0",
     "httpx==0.28.1",
     "jinja2==3.1.6",
     "langgraph>=0.2,<2",
+    "openai>=1.50.0",
     "pinecone>=5,<9",
     "psycopg[binary,pool]==3.2.6",
     "pydantic-settings==2.8.1",
@@ -22,10 +26,3 @@ dependencies = [
     "python-dotenv==1.0.1",
     "uvicorn[standard]==0.34.2",
 ]
-
-[project.scripts]
-atlas-ai-document-chat-application = "atlas_ai_document_chat_application:main"
-
-[build-system]
-requires = ["uv_build>=0.12.21,<0.13.0"]
-build-backend = "uv_build"

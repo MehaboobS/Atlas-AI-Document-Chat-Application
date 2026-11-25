@@ -1,7 +1,7 @@
 """
 Atlas AI - RAG Pipeline (Retrieval-Augmented Generation)
 - Embeddings: Hugging Face Open-Source (BAAI/bge-small-en-v1.5) via FastEmbed (100% Free & Local)
-- Generation: Google Gemini 3.5 Flash (100% Free via Google AI Studio)
+- Generation: Google Gemini (gemini-3.5-flash-lite / gemini-3.5-flash) with automatic resilient failover
 - Storage & Cloud: AWS S3 (Free Tier) with dual local & IAM role credential support
 """
 
@@ -11,11 +11,20 @@ from functools import lru_cache
 from typing import Any, Sequence
 import boto3
 from google import genai
+from google.genai.errors import ServerError
 from app.config import settings
 from app.embeddings import embed_query, embed_texts
 from app.observability import trace
 
 logger = logging.getLogger(__name__)
+
+# Fallback sequence to guarantee uptime when free-tier models experience temporary demand spikes
+FALLBACK_MODELS = [
+    "gemini-3.5-flash-lite",
+    "gemini-3.5-flash",
+    "gemini-3.1-flash-lite",
+    "gemini-flash-latest",
+]
 
 
 @lru_cache
@@ -69,11 +78,11 @@ def answer(
     history: list[dict[str, Any]] | None = None,
 ) -> str:
     """
-    Synthesize a grounded answer using Google Gemini 3.5 Flash.
+    Synthesize a grounded answer using Google Gemini.
     Enforces security boundaries:
     - Treats retrieved evidence as untrusted text, never as instructions (prompt injection defense).
     - Requires citations [1], [2] to grounding passages.
-    - Uses prior conversational context without hallucinating facts.
+    - Resiliently retries across candidate models on 503 high-demand spikes.
     """
     s = settings()
     client = gemini_client()
@@ -107,9 +116,22 @@ def answer(
         f"--- ANSWER ---"
     )
 
-    response = client.models.generate_content(
-        model=s.gemini_model,
-        contents=prompt,
-    )
+    candidate_models = [s.gemini_model] + [m for m in FALLBACK_MODELS if m != s.gemini_model]
+    last_error = None
 
-    return response.text.strip() if response and response.text else ""
+    for model_name in candidate_models:
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+            )
+            if response and response.text:
+                return response.text.strip()
+        except ServerError as err:
+            logger.warning("Model %s experienced high demand (%s). Failing over...", model_name, err)
+            last_error = err
+            continue
+
+    if last_error:
+        raise last_error
+    return ""

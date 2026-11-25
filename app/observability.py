@@ -1,34 +1,59 @@
 """
-Atlas AI - Observability and Tracing
-Integrates telemetry for RAG steps (embed, search, answer).
-Gracefully falls back to local execution timing if external tracing is disabled.
+Privacy-first Rius tracing for Atlas AI.
+No telemetry is exported without a valid RIUS_API_KEY.
+Ensures zero customer data leakage by disabling payload capture by default.
 """
 
-import functools
+import os
 import logging
-import time
+from functools import wraps
 from typing import Any, Callable
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
+
+
+def initialize() -> None:
+    """
+    Call once at application startup before instrumented app modules are loaded.
+    Reads configuration from environment variables or .env.
+    """
+    from dotenv import load_dotenv
+    load_dotenv()
+
+    api_key = os.getenv("RIUS_API_KEY", "").strip()
+    disabled = os.getenv("RIUS_DISABLED", "false").lower() in ("1", "true", "yes")
+
+    if not api_key or disabled:
+        log.info("Rius observability disabled (no key provided or kill switch active)")
+        return
+
+    try:
+        import rius
+        service_name = os.getenv("RIUS_SERVICE_NAME", "atlas-ai-enterprise")
+        capture_content = os.getenv("RIUS_CAPTURE_CONTENT", "false").lower() in ("1", "true", "yes")
+
+        rius.init(
+            api_key=api_key,
+            service_name=service_name,
+            capture_content=capture_content,
+        )
+        log.info("Rius observability enabled (service: %s, capture_content: %s)", service_name, capture_content)
+    except Exception:
+        log.exception("Rius initialization failed; application will continue safely without telemetry")
 
 
 def trace(name: str) -> Callable:
     """
-    Decorator for tracing operations (e.g. @trace("embed"), @trace("answer")).
-    Captures execution duration, logs metrics, and re-raises exceptions cleanly.
+    Decorate sync or async functions for span tracing.
+    Privacy-first: never exports sensitive input arguments or return values.
     """
-    def decorator(func: Callable) -> Callable:
-        @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            start_time = time.perf_counter()
-            try:
-                result = func(*args, **kwargs)
-                elapsed = time.perf_counter() - start_time
-                logger.info("[TRACE] %s completed in %.3fs", name, elapsed)
-                return result
-            except Exception as exc:
-                elapsed = time.perf_counter() - start_time
-                logger.error("[TRACE] %s failed after %.3fs: %s", name, elapsed, exc)
-                raise
-        return wrapper
-    return decorator
+    def decorate(fn: Callable) -> Callable:
+        try:
+            import rius
+            return rius.observe(name=name, capture_input=False, capture_output=False)(fn)
+        except (ImportError, Exception):
+            @wraps(fn)
+            def fallback(*args: Any, **kwargs: Any) -> Any:
+                return fn(*args, **kwargs)
+            return fallback
+    return decorate

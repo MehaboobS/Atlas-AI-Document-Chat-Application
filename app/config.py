@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     pinecone_api_key: str = ""
     pinecone_index_name: str = "atlas-enterprise-ai-index"
     pinecone_cloud: str = "aws"
-    pinecone_region: str = "ap-southeast-2"
+    pinecone_region: str = "us-east-1"
     pinecone_ready_timeout: int = 180
 
     # RAG & Application Settings

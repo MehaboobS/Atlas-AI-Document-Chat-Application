@@ -13,7 +13,6 @@ import os
 import psycopg
 from dotenv import load_dotenv
 
-# Resolve project root and load environment variables
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env")
 
@@ -24,6 +23,9 @@ REQUIRED_TABLES = (
     "audit_events",
     "approvals",
     "chat_messages",
+    "stored_objects",
+    "users",
+    "conversations",
 )
 
 
@@ -40,7 +42,7 @@ def main() -> int:
     print("Connecting to Render PostgreSQL (credentials masked)...")
     try:
         with psycopg.connect(url, connect_timeout=15) as conn:
-            # Execute as a single atomic transaction: either all succeeds or rolls back
+            # Atomic transaction: all tables succeed together or all roll back
             with conn.transaction():
                 sql_content = SCHEMA_FILE.read_text(encoding="utf-8")
                 conn.execute(sql_content)
@@ -50,7 +52,6 @@ def main() -> int:
                 db_info = cur.fetchone()
                 dbname = db_info[0] if db_info else "unknown"
 
-                # Verify all required tables exist in public schema
                 missing = []
                 for table in REQUIRED_TABLES:
                     cur.execute("SELECT to_regclass(%s)", (f"public.{table}",))

@@ -111,33 +111,34 @@ def upsert(tenant: str, records: Sequence[dict[str, Any]], batch_size: int = 100
 def search(
     tenant: str,
     vector: Sequence[float],
-    groups: Sequence[str],
-    owner: str,
+    groups: Sequence[str] = (),
+    owner: str = "",
+    document_id: str | None = None,
     limit: int = 5,
 ) -> list[dict[str, Any]]:
     """
-    Search for similar vectors within tenant namespace enforcing ACL metadata boundaries.
-    Access is granted if the user belongs to allowed_groups OR is the document owner.
+    Search for similar vectors within the user's isolated tenant namespace,
+    enforcing strict single-owner and optional single-document metadata filtering.
     """
-    groups_list = list(groups) if groups else []
+    filters = []
+    if owner:
+        filters.append({"owner_sub": {"$eq": owner}})
+    if document_id:
+        filters.append({"document_id": {"$eq": str(document_id)}})
 
-    # Build access control list (ACL) metadata filter
-    if groups_list:
-        acl_filter = {
-            "$or": [
-                {"allowed_groups": {"$in": groups_list}},
-                {"owner_sub": {"$eq": owner}},
-            ]
-        }
+    if len(filters) > 1:
+        meta_filter = {"$and": filters}
+    elif len(filters) == 1:
+        meta_filter = filters[0]
     else:
-        acl_filter = {"owner_sub": {"$eq": owner}}
+        meta_filter = None
 
     result = index().query(
         vector=list(vector),
         top_k=limit,
         include_metadata=True,
         namespace=namespace(tenant),
-        filter=acl_filter,
+        filter=meta_filter,
     )
 
     return [

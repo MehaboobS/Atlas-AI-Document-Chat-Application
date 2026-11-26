@@ -1,22 +1,33 @@
+"""
+Atlas AI - Cloud & Storage Compatibility Module
+Delegates storage operations to app.storage (supporting PostgreSQL persistence,
+Cloudflare R2, Backblaze B2, Supabase Storage S3, MinIO, or AWS S3)
+and re-exports embedding/RAG utilities.
+"""
+
 import json
 import logging
 from typing import Any, BinaryIO
-import boto3
-from botocore.exceptions import ClientError
-from app.config import settings
+from app.rag import embed, embed_batch
+from app.storage import (
+    create_upload_target,
+    delete_object,
+    get_object_bytes,
+    put_object,
+    s3_client,
+)
 
 logger = logging.getLogger(__name__)
 
 
 def get_s3_client():
-    """Create and return a boto3 S3 client using project settings."""
-    cfg = settings()
-    return boto3.client(
-        "s3",
-        region_name=cfg.aws_region,
-        aws_access_key_id=cfg.aws_access_key_id,
-        aws_secret_access_key=cfg.aws_secret_access_key,
-    )
+    """Return configured S3-compatible client (supports S3, R2, B2, Supabase S3)."""
+    return s3_client()
+
+
+def client(service_name: str = "s3"):
+    """Compatibility wrapper returning S3-compatible client."""
+    return s3_client()
 
 
 def upload_document_to_s3(
@@ -25,82 +36,48 @@ def upload_document_to_s3(
     filename: str,
     content_type: str = "application/octet-stream",
 ) -> str:
-    """
-    Upload an ingested raw document to S3 (Free Tier: 5GB storage).
-    Key format: documents/{doc_id}/{filename}
-    """
-    cfg = settings()
-    s3 = get_s3_client()
-    s3_key = f"documents/{doc_id}/{filename}"
-
-    if isinstance(file_obj, bytes):
-        s3.put_object(
-            Bucket=cfg.s3_bucket,
-            Key=s3_key,
-            Body=file_obj,
-            ContentType=content_type,
-        )
-    else:
-        s3.upload_fileobj(
-            file_obj,
-            cfg.s3_bucket,
-            s3_key,
-            ExtraArgs={"ContentType": content_type},
-        )
-
-    logger.info("Uploaded document to S3: s3://%s/%s", cfg.s3_bucket, s3_key)
-    return s3_key
+    """Store an uploaded raw document under documents/{doc_id}/{filename}."""
+    data = file_obj if isinstance(file_obj, bytes) else file_obj.read()
+    key = f"documents/{doc_id}/{filename}"
+    return put_object(key, data, content_type=content_type)
 
 
 def download_document_from_s3(s3_key: str) -> bytes:
-    """Retrieve raw document bytes from S3."""
-    cfg = settings()
-    s3 = get_s3_client()
-    response = s3.get_object(Bucket=cfg.s3_bucket, Key=s3_key)
-    return response["Body"].read()
+    """Retrieve raw document bytes by storage key."""
+    return get_object_bytes(s3_key)
 
 
 def save_embeddings_to_s3(doc_id: str, embeddings_data: dict[str, Any]) -> str:
-    """
-    Store computed chunk embeddings and metadata as JSON in S3.
-    Key format: embeddings/{doc_id}.json
-    """
-    cfg = settings()
-    s3 = get_s3_client()
-    s3_key = f"embeddings/{doc_id}.json"
-
-    s3.put_object(
-        Bucket=cfg.s3_bucket,
-        Key=s3_key,
-        Body=json.dumps(embeddings_data, ensure_ascii=False),
-        ContentType="application/json",
-    )
-    logger.info("Saved embeddings to S3: s3://%s/%s", cfg.s3_bucket, s3_key)
-    return s3_key
+    """Persist computed chunk embeddings and metadata as JSON."""
+    key = f"embeddings/{doc_id}.json"
+    payload = json.dumps(embeddings_data, ensure_ascii=False).encode("utf-8")
+    return put_object(key, payload, content_type="application/json")
 
 
 def get_embeddings_from_s3(doc_id: str) -> dict[str, Any] | None:
-    """Load chunk embeddings and metadata JSON from S3."""
-    cfg = settings()
-    s3 = get_s3_client()
-    s3_key = f"embeddings/{doc_id}.json"
-
+    """Load chunk embeddings and metadata JSON by document ID."""
+    key = f"embeddings/{doc_id}.json"
     try:
-        response = s3.get_object(Bucket=cfg.s3_bucket, Key=s3_key)
-        return json.loads(response["Body"].read().decode("utf-8"))
-    except ClientError as e:
-        if e.response["Error"]["Code"] == "NoSuchKey":
-            return None
-        raise
+        raw = get_object_bytes(key)
+        return json.loads(raw.decode("utf-8"))
+    except FileNotFoundError:
+        return None
 
 
 def delete_from_s3(s3_key: str) -> bool:
-    """Delete a file from S3."""
-    cfg = settings()
-    s3 = get_s3_client()
-    try:
-        s3.delete_object(Bucket=cfg.s3_bucket, Key=s3_key)
-        return True
-    except ClientError as e:
-        logger.error("Failed to delete %s: %s", s3_key, e)
-        return False
+    """Delete an object by storage key."""
+    return delete_object(s3_key)
+
+
+__all__ = [
+    "client",
+    "create_upload_target",
+    "delete_from_s3",
+    "download_document_from_s3",
+    "embed",
+    "embed_batch",
+    "get_embeddings_from_s3",
+    "get_s3_client",
+    "save_embeddings_to_s3",
+    "upload_document_to_s3",
+]

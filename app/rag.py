@@ -11,6 +11,7 @@ from functools import lru_cache
 from typing import Any, Sequence
 import boto3
 from google import genai
+from google.genai import types
 from google.genai.errors import ServerError
 from app.config import settings
 from app.embeddings import embed_query, embed_texts
@@ -45,14 +46,24 @@ def aws_client(service_name: str = "s3"):
 
 @lru_cache
 def gemini_client() -> genai.Client:
-    """Create and cache Google GenAI Client."""
+    """Create and cache Google GenAI Client with fast failover retry options."""
     s = settings()
     if not s.gemini_api_key or not s.gemini_api_key.strip():
         raise ValueError(
             "GEMINI_API_KEY is missing from environment. "
             "Get a free key from https://aistudio.google.com/"
         )
-    return genai.Client(api_key=s.gemini_api_key.strip())
+    return genai.Client(
+        api_key=s.gemini_api_key.strip(),
+        http_options=types.HttpOptions(
+            timeout=30000,
+            retry_options=types.HttpRetryOptions(
+                attempts=2,
+                initial_delay=0.5,
+                max_delay=2.0,
+            ),
+        ),
+    )
 
 
 @trace("embed")

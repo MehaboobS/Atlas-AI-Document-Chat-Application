@@ -6,7 +6,7 @@
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- 1. Documents metadata table
--- Stores document ownership, multi-tenant partitioning, ACL permissions, versioning, and S3 reference
+-- Stores document ownership, multi-tenant partitioning, ACL permissions, versioning, and storage reference
 CREATE TABLE IF NOT EXISTS documents (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id text NOT NULL,
@@ -52,11 +52,13 @@ CREATE TABLE IF NOT EXISTS approvals (
     tenant_id text NOT NULL,
     requester text NOT NULL,
     question text NOT NULL,
+    document_id uuid,
     status text NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'approved', 'rejected')),
     reviewer text,
     created_at timestamptz NOT NULL DEFAULT now(),
     reviewed_at timestamptz
 );
+ALTER TABLE approvals ADD COLUMN IF NOT EXISTS document_id uuid;
 CREATE INDEX IF NOT EXISTS approvals_tenant_idx ON approvals(tenant_id, status);
 
 -- 5. Chat messages table
@@ -70,3 +72,36 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS chat_messages_session_idx ON chat_messages(tenant_id, conversation_id, id DESC);
+
+-- 6. Stored objects table (Deployment-ready S3 alternative backed by PostgreSQL)
+-- Persists raw uploaded documents and backup embedding JSON payloads across container restarts
+CREATE TABLE IF NOT EXISTS stored_objects (
+    object_key text PRIMARY KEY,
+    content_type text NOT NULL DEFAULT 'application/octet-stream',
+    data bytea NOT NULL,
+    size_bytes integer NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- 7. Users table (Email & password accounts for JWT authentication)
+CREATE TABLE IF NOT EXISTS users (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    email text NOT NULL UNIQUE,
+    password_hash text NOT NULL,
+    full_name text NOT NULL DEFAULT '',
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS users_email_idx ON users(email);
+
+-- 8. Conversations table (1-to-1 document-scoped chat sessions per user)
+CREATE TABLE IF NOT EXISTS conversations (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id text NOT NULL,
+    owner_sub text NOT NULL,
+    document_id uuid NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    title text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    UNIQUE(tenant_id, document_id)
+);
+CREATE INDEX IF NOT EXISTS conversations_user_idx ON conversations(tenant_id, owner_sub, updated_at DESC);

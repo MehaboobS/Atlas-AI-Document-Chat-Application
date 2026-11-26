@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Atlas Enterprise AI — Per-Document Chat</title>
+    <link rel="stylesheet" href="/static/css/styles.css" />
+</head>
+<body>
+    <header class="topbar">
+        <div class="brand">
+            <div class="logo-badge">A</div>
+            <div>
+                <h1>Atlas Enterprise AI</h1>
+                <p class="subtitle">Per-Document Private RAG &bull; JWT Auth &bull; Guardrails &bull; HITL &bull; Rius</p>
+            </div>
+        </div>
+        <div class="topbar-right">
+            <div class="stack-pills">
+                <span class="pill">Storage: <strong>{{ storage_backend }}</strong></span>
+                <span class="pill">LLM: <strong>{{ llm_model }}</strong></span>
+                <span class="pill">Embed: <strong>{{ embed_model }}</strong></span>
+            </div>
+            <div id="user-bar" class="user-bar hidden">
+                <span id="user-email-badge" class="pill user-pill"></span>
+                <button id="logout-btn" class="btn secondary">Logout</button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Authentication Screen (Login / Signup) -->
+    <section id="auth-screen" class="auth-screen">
+        <div class="card auth-card">
+            <div class="auth-tabs">
+                <button id="show-login-tab" class="tab-btn active" type="button">Login</button>
+                <button id="show-signup-tab" class="tab-btn" type="button">Sign Up</button>
+            </div>
+
+            <form id="login-form" class="auth-form">
+                <h2>Welcome Back</h2>
+                <p class="muted">Sign in to access your private document conversations and history.</p>
+                <div class="field">
+                    <label for="login-email">Email</label>
+                    <input id="login-email" type="email" placeholder="you@example.com" required />
+                </div>
+                <div class="field">
+                    <label for="login-password">Password</label>
+                    <input id="login-password" type="password" placeholder="Enter your password" required />
+                </div>
+                <button id="login-submit" type="submit" class="btn primary">Sign In</button>
+            </form>
+
+            <form id="signup-form" class="auth-form hidden">
+                <h2>Create Account</h2>
+                <p class="muted">Each user gets isolated private storage and separate chats per document.</p>
+                <div class="field">
+                    <label for="signup-name">Full Name (optional)</label>
+                    <input id="signup-name" type="text" placeholder="Alice Johnson" />
+                </div>
+                <div class="field">
+                    <label for="signup-email">Email</label>
+                    <input id="signup-email" type="email" placeholder="you@example.com" required />
+                </div>
+                <div class="field">
+                    <label for="signup-password">Password (min 6 characters)</label>
+                    <input id="signup-password" type="password" minlength="6" placeholder="Create a password" required />
+                </div>
+                <button id="signup-submit" type="submit" class="btn primary">Create Account</button>
+            </form>
+
+            <div id="auth-status" class="status-banner error hidden"></div>
+        </div>
+    </section>
+
+    <!-- Authenticated Workspace -->
+    <div id="app-workspace" class="hidden">
+        <nav class="tabs">
+            <button class="tab-btn active" data-tab="chat-panel">Chat Assistant</button>
+            <button class="tab-btn" data-tab="docs-panel">Documents &amp; Upload</button>
+            <button class="tab-btn" data-tab="approvals-panel">HITL Approvals</button>
+            <button class="tab-btn" data-tab="metrics-panel">Metrics &amp; Audit</button>
+        </nav>
+
+        <main class="container">
+            <!-- 1. Chat Assistant Panel with Per-Document Conversations Sidebar -->
+            <section id="chat-panel" class="tab-panel active">
+                <div class="chat-layout">
+                    <!-- Sidebar listing each document's dedicated conversation -->
+                    <aside id="chat-sidebar" class="chat-sidebar">
+                        <div class="sidebar-header">
+                            <h3>Document Chats</h3>
+                            <button id="new-doc-chat-btn" type="button" class="btn primary small" title="Upload a new document to start a new conversation">
+                                + New Doc
+                            </button>
+                        </div>
+                        <p class="muted sidebar-hint">Each uploaded file has its own separate conversation.</p>
+                        <div id="conversation-list" class="conversation-list">
+                            <p class="muted center" style="padding: 1rem;">No document chats yet.</p>
+                        </div>
+                    </aside>
+
+                    <!-- Active Single-Document Chat Area -->
+                    <div class="chat-main">
+                        <div class="panel-header">
+                            <div class="active-doc-header">
+                                <button id="toggle-sidebar-btn" type="button" class="btn secondary small mobile-only">☰ Chats</button>
+                                <div>
+                                    <h2 id="active-doc-title">No Document Selected</h2>
+                                    <span id="session-badge" class="muted">Upload a document to begin a conversation</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Empty State when no document conversation is active -->
+                        <div id="empty-chat-state" class="empty-chat-state">
+                            <div class="empty-icon">📄</div>
+                            <h3>Upload a Document to Start Chatting</h3>
+                            <p class="muted">Every document you upload gets its own dedicated conversation in the sidebar so contexts never mix.</p>
+                            <button id="empty-upload-btn" type="button" class="btn primary">+ Upload First Document</button>
+                        </div>
+
+                        <!-- Fixed-height vertically scrollable chat history panel -->
+                        <div id="chat-history" class="chat-history hidden" aria-live="polite"></div>
+
+                        <div id="inline-upload-status" class="status-banner hidden"></div>
+
+                        <form id="chat-form" class="chat-input-bar">
+                            <input id="inline-doc-file" type="file" accept=".pdf,.docx,.txt,.md" class="hidden" />
+                            <button id="inline-upload-btn" type="button" class="btn secondary" title="Upload a new document into a new conversation">
+                                📎 Upload New Doc
+                            </button>
+                            <input
+                                id="chat-input"
+                                type="text"
+                                placeholder="Ask a question about the selected document..."
+                                autocomplete="off"
+                                disabled
+                                required
+                            />
+                            <button id="chat-submit" type="submit" class="btn primary" disabled>Send</button>
+                        </form>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 2. Documents & Upload Panel -->
+            <section id="docs-panel" class="tab-panel">
+                <div class="card upload-card">
+                    <h2>Upload New Document (Creates New Conversation)</h2>
+                    <form id="upload-form" class="upload-grid">
+                        <div class="field">
+                            <label for="doc-file">File (.pdf, .docx, .txt, .md)</label>
+                            <input id="doc-file" type="file" accept=".pdf,.docx,.txt,.md" required />
+                        </div>
+                        <div class="field">
+                            <label for="doc-title">Document Title</label>
+                            <input id="doc-title" type="text" placeholder="e.g. Project Notes 2026" required />
+                        </div>
+                        <div class="field action-end">
+                            <button id="upload-submit" type="submit" class="btn primary">Upload &amp; Start Chat</button>
+                        </div>
+                    </form>
+                    <div id="upload-status" class="status-banner hidden"></div>
+                </div>
+
+                <div class="card">
+                    <div class="panel-header">
+                        <h2>My Documents</h2>
+                        <button id="refresh-docs-btn" class="btn secondary">Refresh</button>
+                    </div>
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Title</th>
+                                    <th>Status</th>
+                                    <th>Ver</th>
+                                    <th>Created</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="docs-tbody">
+                                <tr><td colspan="5" class="muted center">Loading documents...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 3. HITL Approvals Panel -->
+            <section id="approvals-panel" class="tab-panel">
+                <div class="card">
+                    <div class="panel-header">
+                        <div>
+                            <h2>Human-in-the-Loop (HITL) Approvals</h2>
+                            <p class="muted">Sensitive queries and document removal commands wait here for your confirmation.</p>
+                        </div>
+                        <button id="refresh-approvals-btn" class="btn secondary">Refresh</button>
+                    </div>
+                    <div id="approvals-list" class="approvals-list">
+                        <p class="muted">Loading approvals...</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 4. Metrics & Audit Panel -->
+            <section id="metrics-panel" class="tab-panel">
+                <div class="panel-header">
+                    <h2>My Workspace Metrics &amp; Audit</h2>
+                    <button id="refresh-metrics-btn" class="btn secondary">Refresh Metrics</button>
+                </div>
+                <div id="kpi-grid" class="kpi-grid"></div>
+
+                <div class="card">
+                    <h3>Recent Audit Events</h3>
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Actor</th>
+                                    <th>Action</th>
+                                    <th>Details</th>
+                                </tr>
+                            </thead>
+                            <tbody id="audit-tbody">
+                                <tr><td colspan="4" class="muted center">Loading audit events...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

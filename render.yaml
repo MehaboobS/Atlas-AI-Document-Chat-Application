@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: atlas-enterprise-ai
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt && python scripts/init_db.py
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: STORAGE_BACKEND
+        value: postgres
+      - key: HF_EMBED_MODEL
+        value: BAAI/bge-small-en-v1.5
+      - key: EMBED_DIM
+        value: "384"
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash-lite
+      - key: PINECONE_CLOUD
+        value: aws
+      - key: PINECONE_REGION
+        value: us-east-1
+      - key: RIUS_SERVICE_NAME
+        value: atlas-ai-enterprise
+      - key: RIUS_CAPTURE_CONTENT
+        value: "false"
+      - key: HITL_ENABLED
+        value: "true"
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: PINECONE_API_KEY
+        sync: false
+      - key: RIUS_API_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
